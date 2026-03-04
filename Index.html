@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Pemasukan Usaha Slim</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #007bff; --success: #28a745; --warning: #ffc107; --danger: #dc3545; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 15px; background-color: #f0f2f5; font-size: 13px; }
+        .container { max-width: 850px; margin: auto; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        h2, h4 { text-align: center; margin: 10px 0; color: #333; }
+        
+        .panel { background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #e9ecef; }
+        .flex-group { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
+        input, select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+        th, td { border: 1px solid #eee; padding: 6px 8px; text-align: center; }
+        th { background-color: var(--primary); color: white; font-weight: 500; }
+        
+        /* Pewarnaan baris tipis berdasarkan usaha */
+        .row-maros { background-color: rgba(54, 162, 235, 0.05); }
+        .row-sinjai { background-color: rgba(255, 99, 132, 0.05); }
+        .row-bone { background-color: rgba(75, 192, 192, 0.05); }
+
+        tfoot .total-row { background: #f1f1f1; font-weight: bold; }
+        tfoot .grand-total-row { background: #e2e3e5; font-weight: bold; font-size: 14px; color: var(--primary); }
+        
+        .btn { border: none; border-radius: 4px; cursor: pointer; padding: 6px 12px; font-weight: 500; }
+        .btn-add { background: var(--success); color: white; }
+        .btn-edit { background: var(--warning); padding: 2px 6px; }
+        .btn-del { background: var(--danger); color: white; padding: 2px 6px; }
+        .btn-filter { background: #6c757d; color: white; font-size: 11px; }
+        .btn-filter.active { background: var(--primary); }
+
+        .chart-container { height: 230px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Pemasukan Usaha</h2>
+
+    <div class="panel">
+        <div class="flex-group">
+            <input type="date" id="inputTanggal">
+            <select id="inputUsaha">
+                <option value="Maros">Maros</option>
+                <option value="Sinjai">Sinjai</option>
+                <option value="Bone">Bone</option>
+            </select>
+            <input type="number" id="inputPemasukan" placeholder="Nominal (Rp)">
+            <button id="btnSubmit" class="btn btn-add" onclick="simpanData()">Tambah</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="flex-group">
+            <button class="btn btn-filter active" onclick="setFilter('semua', this)">Semua</button>
+            <button class="btn btn-filter" onclick="setFilter('minggu', this)">Minggu Ini</button>
+            <button class="btn btn-filter" onclick="setFilter('bulan', this)">Bulan Ini</button>
+        </div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Tanggal</th>
+                    <th>Maros</th>
+                    <th>Sinjai</th>
+                    <th>Bone</th>
+                    <th style="width: 70px;">Aksi</th>
+                </tr>
+            </thead>
+            <tbody id="tabelRiwayat"></tbody>
+            <tfoot>
+                <tr class="total-row">
+                    <td>TOTAL UNIT</td>
+                    <td id="totMaros">0</td>
+                    <td id="totSinjai">0</td>
+                    <td id="totBone">0</td>
+                    <td></td>
+                </tr>
+                <tr class="grand-total-row">
+                    <td colspan="1">GRAND TOTAL</td>
+                    <td colspan="3" id="grandTotal" style="text-align: center; letter-spacing: 1px;">Rp 0</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="myChart"></canvas>
+    </div>
+</div>
+
+<script>
+    let myChart;
+    let riwayatData = [];
+    let currentFilter = 'semua';
+    let modeEditIndex = -1;
+
+    function setFilter(filter, el) {
+        currentFilter = filter;
+        document.querySelectorAll('.btn-filter').forEach(b => b.classList.remove('active'));
+        el.classList.add('active');
+        perbaruiTampilan();
+    }
+
+    function simpanData() {
+        const tgl = document.getElementById('inputTanggal').value;
+        const ush = document.getElementById('inputUsaha').value;
+        const nominal = parseFloat(document.getElementById('inputPemasukan').value);
+        if (!tgl || isNaN(nominal)) return alert("Data tidak lengkap!");
+
+        if (modeEditIndex === -1) riwayatData.push({ tanggal: tgl, usaha: ush, pemasukan: nominal });
+        else {
+            riwayatData[modeEditIndex] = { tanggal: tgl, usaha: ush, pemasukan: nominal };
+            modeEditIndex = -1;
+            document.getElementById('btnSubmit').innerText = "Tambah";
+        }
+        document.getElementById('inputPemasukan').value = '';
+        perbaruiTampilan();
+    }
+
+    function perbaruiTampilan() {
+        const tbody = document.getElementById('tabelRiwayat');
+        tbody.innerHTML = '';
+        const sekarang = new Date();
+        let tM = 0, tS = 0, tB = 0;
+
+        const dataFilter = riwayatData.filter(d => {
+            const dDate = new Date(d.tanggal);
+            if (currentFilter === 'bulan') return dDate.getMonth() === sekarang.getMonth();
+            if (currentFilter === 'minggu') {
+                const diff = sekarang.getTime() - dDate.getTime();
+                return diff <= (7 * 24 * 60 * 60 * 1000);
+            }
+            return true;
+        });
+
+        dataFilter.sort((a,b) => new Date(b.tanggal) - new Date(a.tanggal)).forEach(d => {
+            let m='-', s='-', b='-', cls='';
+            if (d.usaha === 'Maros') { m = d.pemasukan; tM += m; cls='row-maros'; }
+            if (d.usaha === 'Sinjai') { s = d.pemasukan; tS += s; cls='row-sinjai'; }
+            if (d.usaha === 'Bone') { b = d.pemasukan; tB += b; cls='row-bone'; }
+
+            tbody.innerHTML += `<tr class="${cls}">
+                <td>${d.tanggal}</td>
+                <td>${m !== '-' ? 'Rp '+m.toLocaleString() : '-'}</td>
+                <td>${s !== '-' ? 'Rp '+s.toLocaleString() : '-'}</td>
+                <td>${b !== '-' ? 'Rp '+b.toLocaleString() : '-'}</td>
+                <td>
+                    <button class="btn btn-edit" onclick="editData(${riwayatData.indexOf(d)})">✎</button>
+                    <button class="btn btn-del" onclick="hapusData(${riwayatData.indexOf(d)})">✕</button>
+                </td>
+            </tr>`;
+        });
+
+        const totalSemua = tM + tS + tB;
+        document.getElementById('totMaros').innerText = 'Rp ' + tM.toLocaleString();
+        document.getElementById('totSinjai').innerText = 'Rp ' + tS.toLocaleString();
+        document.getElementById('totBone').innerText = 'Rp ' + tB.toLocaleString();
+        document.getElementById('grandTotal').innerText = 'Rp ' + totalSemua.toLocaleString();
+        
+        renderChart([tM, tS, tB]);
+    }
+
+    function editData(idx) {
+        const d = riwayatData[idx];
+        document.getElementById('inputTanggal').value = d.tanggal;
+        document.getElementById('inputUsaha').value = d.usaha;
+        document.getElementById('inputPemasukan').value = d.pemasukan;
+        modeEditIndex = idx;
+        document.getElementById('btnSubmit').innerText = "Update";
+    }
+
+    function hapusData(idx) {
+        if(confirm("Hapus data ini?")) { riwayatData.splice(idx, 1); perbaruiTampilan(); }
+    }
+
+    function renderChart(vals) {
+        const ctx = document.getElementById('myChart').getContext('2d');
+        if (myChart) myChart.destroy();
+        myChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Maros', 'Sinjai', 'Bone'],
+                datasets: [{
+                    label: 'Total Terfilter (Rp)',
+                    data: vals,
+                    backgroundColor: ['#36a2eb', '#ff6384', '#4bc0c0'],
+                    borderRadius: 5
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
+    }
+    perbaruiTampilan();
+</script>
+</body>
+</html>
