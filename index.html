@@ -3,44 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Pemasukan Usaha Slim</title>
+    <title>Dashboard Pemasukan Usaha - Firebase</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
     <style>
         :root { --primary: #007bff; --success: #28a745; --warning: #ffc107; --danger: #dc3545; }
         body { font-family: 'Segoe UI', sans-serif; margin: 15px; background-color: #f0f2f5; font-size: 13px; }
         .container { max-width: 850px; margin: auto; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-        h2, h4 { text-align: center; margin: 10px 0; color: #333; }
-        
+        h2 { text-align: center; margin: 10px 0; color: #333; }
         .panel { background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #e9ecef; }
         .flex-group { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
         input, select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; }
-        
         table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
         th, td { border: 1px solid #eee; padding: 6px 8px; text-align: center; }
-        th { background-color: var(--primary); color: white; font-weight: 500; }
-        
-        /* Pewarnaan baris tipis berdasarkan usaha */
+        th { background-color: var(--primary); color: white; }
         .row-maros { background-color: rgba(54, 162, 235, 0.05); }
         .row-sinjai { background-color: rgba(255, 99, 132, 0.05); }
         .row-bone { background-color: rgba(75, 192, 192, 0.05); }
-
         tfoot .total-row { background: #f1f1f1; font-weight: bold; }
         tfoot .grand-total-row { background: #e2e3e5; font-weight: bold; font-size: 14px; color: var(--primary); }
-        
         .btn { border: none; border-radius: 4px; cursor: pointer; padding: 6px 12px; font-weight: 500; }
         .btn-add { background: var(--success); color: white; }
         .btn-edit { background: var(--warning); padding: 2px 6px; }
         .btn-del { background: var(--danger); color: white; padding: 2px 6px; }
         .btn-filter { background: #6c757d; color: white; font-size: 11px; }
         .btn-filter.active { background: var(--primary); }
-
         .chart-container { height: 230px; margin-top: 20px; }
+        #loading { text-align: center; color: var(--primary); font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>Pemasukan Usaha</h2>
+    <h2>Pemasukan Usaha (Live Database)</h2>
 
     <div class="panel">
         <div class="flex-group">
@@ -54,6 +51,8 @@
             <button id="btnSubmit" class="btn btn-add" onclick="simpanData()">Tambah</button>
         </div>
     </div>
+
+    <div id="loading">Memuat data...</div>
 
     <div class="panel">
         <div class="flex-group">
@@ -82,8 +81,8 @@
                     <td></td>
                 </tr>
                 <tr class="grand-total-row">
-                    <td colspan="1">GRAND TOTAL</td>
-                    <td colspan="3" id="grandTotal" style="text-align: center; letter-spacing: 1px;">Rp 0</td>
+                    <td>GRAND TOTAL</td>
+                    <td colspan="3" id="grandTotal">Rp 0</td>
                     <td></td>
                 </tr>
             </tfoot>
@@ -96,31 +95,84 @@
 </div>
 
 <script>
-    let myChart;
-    let riwayatData = [];
-    let currentFilter = 'semua';
-    let modeEditIndex = -1;
+    // --- KONFIGURASI FIREBASE ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyCINEztpEybnoiqaXzGnabilMUSGx5KiBU",
+        authDomain: "nunukan1.firebaseapp.com",
+        databaseURL: "https://nunukan1-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "nunukan1",
+        storageBucket: "nunukan1.firebasestorage.app",
+        messagingSenderId: "300658059555",
+        appId: "1:300658059555:web:9c0baff95f4dbe7074c496",
+        measurementId: "G-Q49MS8TXK0"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
 
-    function setFilter(filter, el) {
-        currentFilter = filter;
-        document.querySelectorAll('.btn-filter').forEach(b => b.classList.remove('active'));
-        el.classList.add('active');
+    let myChart;
+    let riwayatData = []; // Sekarang berisi {id, tanggal, usaha, pemasukan}
+    let currentFilter = 'semua';
+    let editID = null;
+
+    // --- LOGIKA DATABASE ---
+
+    // Ambil Data Secara Realtime
+    db.ref('pemasukan').on('value', (snapshot) => {
+        const data = snapshot.val();
+        riwayatData = [];
+        if (data) {
+            for (let id in data) {
+                riwayatData.push({ id, ...data[id] });
+            }
+        }
+        document.getElementById('loading').style.display = 'none';
         perbaruiTampilan();
-    }
+    });
 
     function simpanData() {
         const tgl = document.getElementById('inputTanggal').value;
         const ush = document.getElementById('inputUsaha').value;
         const nominal = parseFloat(document.getElementById('inputPemasukan').value);
-        if (!tgl || isNaN(nominal)) return alert("Data tidak lengkap!");
+        if (!tgl || isNaN(nominal)) return alert("Isi data dengan lengkap!");
 
-        if (modeEditIndex === -1) riwayatData.push({ tanggal: tgl, usaha: ush, pemasukan: nominal });
-        else {
-            riwayatData[modeEditIndex] = { tanggal: tgl, usaha: ush, pemasukan: nominal };
-            modeEditIndex = -1;
+        if (editID) {
+            // Update Data
+            db.ref('pemasukan/' + editID).update({
+                tanggal: tgl, usaha: ush, pemasukan: nominal
+            });
+            editID = null;
             document.getElementById('btnSubmit').innerText = "Tambah";
+        } else {
+            // Tambah Baru
+            db.ref('pemasukan').push({
+                tanggal: tgl, usaha: ush, pemasukan: nominal
+            });
         }
         document.getElementById('inputPemasukan').value = '';
+    }
+
+    function hapusData(id) {
+        if(confirm("Hapus data ini dari cloud?")) {
+            db.ref('pemasukan/' + id).remove();
+        }
+    }
+
+    function editData(id) {
+        const d = riwayatData.find(item => item.id === id);
+        document.getElementById('inputTanggal').value = d.tanggal;
+        document.getElementById('inputUsaha').value = d.usaha;
+        document.getElementById('inputPemasukan').value = d.pemasukan;
+        editID = id;
+        document.getElementById('btnSubmit').innerText = "Update";
+    }
+
+    // --- LOGIKA TAMPILAN ---
+
+    function setFilter(f, el) {
+        currentFilter = f;
+        document.querySelectorAll('.btn-filter').forEach(b => b.classList.remove('active'));
+        el.classList.add('active');
         perbaruiTampilan();
     }
 
@@ -152,32 +204,17 @@
                 <td>${s !== '-' ? 'Rp '+s.toLocaleString() : '-'}</td>
                 <td>${b !== '-' ? 'Rp '+b.toLocaleString() : '-'}</td>
                 <td>
-                    <button class="btn btn-edit" onclick="editData(${riwayatData.indexOf(d)})">✎</button>
-                    <button class="btn btn-del" onclick="hapusData(${riwayatData.indexOf(d)})">✕</button>
+                    <button class="btn btn-edit" onclick="editData('${d.id}')">✎</button>
+                    <button class="btn btn-del" onclick="hapusData('${d.id}')">✕</button>
                 </td>
             </tr>`;
         });
 
-        const totalSemua = tM + tS + tB;
         document.getElementById('totMaros').innerText = 'Rp ' + tM.toLocaleString();
         document.getElementById('totSinjai').innerText = 'Rp ' + tS.toLocaleString();
         document.getElementById('totBone').innerText = 'Rp ' + tB.toLocaleString();
-        document.getElementById('grandTotal').innerText = 'Rp ' + totalSemua.toLocaleString();
-        
+        document.getElementById('grandTotal').innerText = 'Rp ' + (tM + tS + tB).toLocaleString();
         renderChart([tM, tS, tB]);
-    }
-
-    function editData(idx) {
-        const d = riwayatData[idx];
-        document.getElementById('inputTanggal').value = d.tanggal;
-        document.getElementById('inputUsaha').value = d.usaha;
-        document.getElementById('inputPemasukan').value = d.pemasukan;
-        modeEditIndex = idx;
-        document.getElementById('btnSubmit').innerText = "Update";
-    }
-
-    function hapusData(idx) {
-        if(confirm("Hapus data ini?")) { riwayatData.splice(idx, 1); perbaruiTampilan(); }
     }
 
     function renderChart(vals) {
@@ -188,16 +225,15 @@
             data: {
                 labels: ['Maros', 'Sinjai', 'Bone'],
                 datasets: [{
-                    label: 'Total Terfilter (Rp)',
+                    label: 'Total Pemasukan (Rp)',
                     data: vals,
                     backgroundColor: ['#36a2eb', '#ff6384', '#4bc0c0'],
                     borderRadius: 5
                 }]
             },
-            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+            options: { responsive: true, maintainAspectRatio: false }
         });
     }
-    perbaruiTampilan();
 </script>
 </body>
 </html>
